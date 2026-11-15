@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Family Board</title>
+<!-- Runs in Android 4.4's 2013 browser engine: plain ES5 and old CSS only (no grid, no let/const, no arrows). -->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #f4efe6; color: #2b2a28;
+    font-family: Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: rgba(0,0,0,0); }
+  /* #wrap is nudged a few pixels every few minutes so nothing sits on the same pixels all day. */
+  #wrap { position: absolute; left: 8px; top: 8px; right: 8px; bottom: 8px; }
+  #head { position: absolute; left: 0; right: 0; top: 0; height: 44px; line-height: 44px; }
+  #clock { float: left; font-size: 30px; font-weight: bold; padding: 0 10px 0 4px; }
+  #date { float: left; font-size: 18px; color: #6b665e; }
+  #sync { float: right; font-size: 13px; color: #9a948a; padding-right: 6px; }
+  .col { position: absolute; top: 50px; bottom: 0; background: #fff; border-radius: 10px; overflow: hidden; }
+  .colhead { height: 40px; line-height: 40px; padding: 0 12px; color: #fff; font-size: 18px; font-weight: bold; }
+  .colhead span { float: right; font-weight: normal; font-size: 14px; opacity: 0.9; }
+  .list { position: absolute; top: 40px; bottom: 0; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .task { position: relative; min-height: 36px; padding: 10px 8px 10px 48px; border-bottom: 1px solid #eee8dc;
+    font-size: 17px; line-height: 20px; }
+  .task .box { position: absolute; left: 10px; top: 50%; margin-top: -15px; width: 26px; height: 26px;
+    border: 2px solid #b9b2a5; border-radius: 15px; text-align: center; line-height: 26px; font-size: 18px; color: #fff; }
+  .task.done { color: #aaa398; text-decoration: line-through; }
+  .empty { padding: 16px 12px; color: #aaa398; font-size: 15px; }
+  .day { padding: 8px 12px 4px; font-size: 13px; font-weight: bold; color: #8a8478; text-transform: uppercase; }
+  .ev { padding: 4px 12px 8px; font-size: 16px; line-height: 20px; border-bottom: 1px solid #eee8dc; }
+  .ev b { display: block; font-size: 13px; color: #6b665e; font-weight: normal; }
+  #setup { display: none; position: absolute; left: 10%; right: 10%; top: 8%; bottom: 8%; background: #fff;
+    border: 2px solid #2b2a28; border-radius: 12px; padding: 14px 18px; overflow-y: auto; font-size: 15px; z-index: 5; }
+  #setup h2 { margin: 0 0 8px; font-size: 20px; }
+  #setup button { font-size: 16px; padding: 10px 14px; margin: 4px 6px 4px 0; }
+  #setup pre { background: #f4efe6; padding: 8px; white-space: pre-wrap; word-wrap: break-word; font-size: 13px; margin: 6px 0; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="head"><div id="clock"></div><div id="date"></div><div id="sync"></div></div>
+  <div id="cols"></div>
+  <div id="setup">
+    <h2>Setup &amp; diagnostics</h2>
+    <div>
+      <button id="btnTest">Test connection to Google</button>
+      <button id="btnSettings">Open Android settings</button>
+      <button id="btnClose">Close</button>
+    </div>
+    <pre id="netOut">Connection: not tested yet</pre>
+    <div>Dim after
+      <button id="dimMinus">-</button><b id="dimVal"></b> s<button id="dimPlus">+</button>
+      &nbsp; Motion sensitivity (lower = more sensitive)
+      <button id="thrMinus">-</button><b id="thrVal"></b><button id="thrPlus">+</button>
+    </div>
+    <pre id="camOut">Camera: ...</pre>
+  </div>
+</div>
+<script>
+var COLORS = ['#3f7fbf', '#b5586b', '#4d9a6a', '#c98a2b'];
+var CAL_COLOR = '#5b5f97';
+
+// Sample data until the tablet is linked to the family's Google Sheet and Calendar.
+var data = {
+  people: ['Dad', 'Mom', 'Kid 1', 'Kid 2'],
+  tasks: [
+    { id: 't1', person: 'Dad', title: 'Take out trash' },
+    { id: 't2', person: 'Dad', title: 'Pay water bill' },
+    { id: 't3', person: 'Mom', title: 'Sign permission slip' },
+    { id: 't4', person: 'Mom', title: 'Order groceries' },
+    { id: 't5', person: 'Kid 1', title: 'Make bed' },
+    { id: 't6', person: 'Kid 1', title: 'Feed the dog' },
+    { id: 't7', person: 'Kid 1', title: 'Homework' },
+    { id: 't8', person: 'Kid 2', title: 'Make bed' },
+    { id: 't9', person: 'Kid 2', title: 'Put toys away' }
+  ],
+  events: [
+    { day: 'Today', time: '5:30 PM', title: 'Basketball practice' },
+    { day: 'Today', time: '7:00 PM', title: 'Family dinner' },
+    { day: 'Tomorrow', time: '8:15 AM', title: 'Dentist' },
+    { day: 'Wed', time: 'All day', title: 'Library books due' }
+  ]
+};
+
+function $(id) { return document.getElementById(id); }
+function store(key, val) {
+  try {
+    if (val === undefined) return JSON.parse(localStorage.getItem(key));
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch (e) { return null; }
+}
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function today() { var d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+
+// Check-offs are kept per day, so yesterday's ticks clear themselves overnight.
+var done = store('done') || {};
+if (done.day !== today()) done = { day: today(), ids: {} };
+
+function render() {
+  var html = '', n = data.people.length, calW = 22, w = (100 - calW) / n, i, j;
+  for (i = 0; i < n; i++) {
+    var mine = [], finished = 0, rows = '';
+    for (j = 0; j < data.tasks.length; j++) if (data.tasks[j].person === data.people[i]) mine.push(data.tasks[j]);
+    // Unfinished first, finished at the bottom.
+    mine.sort(function (a, b) { return (done.ids[a.id] ? 1 : 0) - (done.ids[b.id] ? 1 : 0); });
+    for (j = 0; j < mine.length; j++) {
+      var d = !!done.ids[mine[j].id];
+      if (d) finished++;
+      rows += '<div class="task' + (d ? ' done' : '') + '" data-id="' + esc(mine[j].id) + '">' +
+        '<div class="box"' + (d ? ' style="background:' + COLORS[i % 4] + ';border-color:' + COLORS[i % 4] + '"' : '') + '>' +
+        (d ? '&#10003;' : '') + '</div>' + esc(mine[j].title) + '</div>';
+    }
+    if (!mine.length) rows = '<div class="empty">Nothing to do</div>';
+    html += '<div class="col" style="left:' + (i * w) + '%;width:' + (w - 1) + '%">' +
+      '<div class="colhead" style="background:' + COLORS[i % 4] + '">' + esc(data.people[i]) +
+      '<span>' + finished + '/' + mine.length + '</span></div><div class="list">' + rows + '</div></div>';
+  }
+  var ev = '', lastDay = '';
+  for (j = 0; j < data.events.length; j++) {
+    if (data.events[j].day !== lastDay) { lastDay = data.events[j].day; ev += '<div class="day">' + esc(lastDay) + '</div>'; }
+    ev += '<div class="ev"><b>' + esc(data.events[j].time) + '</b>' + esc(data.events[j].title) + '</div>';
+  }
+  if (!ev) ev = '<div class="empty">No upcoming events</div>';
+  html += '<div class="col" style="left:' + (n * w) + '%;width:' + calW + '%">' +
+    '<div class="colhead" style="background:' + CAL_COLOR + '">Calendar</div><div class="list">' + ev + '</div></div>';
+  $('cols').innerHTML = html;
+}
+
+$('cols').addEventListener('click', function (e) {
+  var el = e.target;
+  while (el && el !== this && !(el.className && /\btask\b/.test(el.className))) el = el.parentNode;
+  if (!el || el === this) return;
+  var id = el.getAttribute('data-id');
+  if (done.ids[id]) delete done.ids[id]; else done.ids[id] = 1;
+  store('done', done);
+  render();
+});
+
+var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function tickClock() {
+  var d = new Date(), h = d.getHours(), m = d.getMinutes();
+  $('clock').innerHTML = ((h % 12) || 12) + ':' + (m < 10 ? '0' : '') + m + (h < 12 ? ' AM' : ' PM');
+  $('date').innerHTML = DAYS[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
+  if (done.day !== today()) { done = { day: today(), ids: {} }; store('done', done); render(); }
+}
+
+// Pixel shift: move the whole board through a small loop of offsets.
+var SHIFTS = [[0, 0], [3, 2], [6, 4], [3, 6], [0, 4], [-3, 2]], shiftAt = 0;
+function shift() {
+  shiftAt = (shiftAt + 1) % SHIFTS.length;
+  var s = SHIFTS[shiftAt], w = $('wrap').style;
+  w.left = (8 + s[0]) + 'px'; w.right = (8 - s[0]) + 'px';
+  w.top = (8 + s[1]) + 'px'; w.bottom = (8 - s[1]) + 'px';
+}
+
+// ---- Setup panel: tap the clock five times quickly ----
+var hasTablet = typeof Tablet !== 'undefined';
+var cfg = store('cfg') || { dim: 120, thr: 8 };
+var taps = 0, tapTimer = null, statusTimer = null;
+function applyCfg() {
+  store('cfg', cfg);
+  $('dimVal').innerHTML = ' ' + cfg.dim; $('thrVal').innerHTML = ' ' + cfg.thr + ' ';
+  if (hasTablet) Tablet.configure(cfg.dim, cfg.thr);
+}
+function showStatus() {
+  if (!hasTablet) { $('camOut').innerHTML = 'Camera: (not running inside the tablet app)'; return; }
+  var s = JSON.parse(Tablet.status());
+  $('camOut').innerHTML = 'Camera: ' + esc(s.camera) + '\nMovement level now: ' + s.diff +
+    '   (wakes at ' + cfg.thr + ' or more)\nMovements detected: ' + s.motions + '\nSeconds since last activity: ' + s.idleSeconds;
+}
+$('clock').addEventListener('click', function () {
+  taps++;
+  clearTimeout(tapTimer);
+  tapTimer = setTimeout(function () { taps = 0; }, 1500);
+  if (taps >= 5) { taps = 0; $('setup').style.display = 'block'; showStatus(); statusTimer = setInterval(showStatus, 1000); }
+});
+$('btnClose').addEventListener('click', function () { $('setup').style.display = 'none'; clearInterval(statusTimer); });
+$('btnSettings').addEventListener('click', function () { if (hasTablet) Tablet.openSettings(); });
+$('dimMinus').addEventListener('click', function () { cfg.dim = Math.max(15, cfg.dim - 15); applyCfg(); });
+$('dimPlus').addEventListener('click', function () { cfg.dim += 15; applyCfg(); });
+$('thrMinus').addEventListener('click', function () { cfg.thr = Math.max(1, cfg.thr - 1); applyCfg(); });
+$('thrPlus').addEventListener('click', function () { cfg.thr += 1; applyCfg(); });
+
+var TESTS = [
+  ['google', 'https://www.google.com/generate_204'],
+  ['script', 'https://script.google.com/'],
+  ['calendar', 'https://calendar.google.com/robots.txt']
+];
+var netLines = {};
+$('btnTest').addEventListener('click', function () {
+  if (!hasTablet) { $('netOut').innerHTML = 'Connection: (not running inside the tablet app)'; return; }
+  netLines = {};
+  for (var i = 0; i < TESTS.length; i++) { netLines[TESTS[i][0]] = 'waiting...'; Tablet.fetch(TESTS[i][0], TESTS[i][1]); }
+  showNet();
+});
+function showNet() {
+  var out = '';
+  for (var i = 0; i < TESTS.length; i++) out += TESTS[i][1] + '\n  -> ' + netLines[TESTS[i][0]] + '\n';
+  $('netOut').innerHTML = esc(out);
+}
+// Called by the app when a Tablet.fetch finishes. Status 0 means the connection itself failed.
+function onFetch(id, status, body) {
+  netLines[id] = status ? 'OK (HTTP ' + status + ')' : 'FAILED: ' + String(body).substring(0, 200);
+  showNet();
+}
+
+render();
+tickClock();
+applyCfg();
+setInterval(tickClock, 5000);
+setInterval(shift, 4 * 60 * 1000);
+$('sync').innerHTML = 'sample data';
+</script>
+</body>
+</html>
