@@ -103,8 +103,11 @@ function refresh() {
   if (!u) { $('sync').innerHTML = 'sample data (not linked yet)'; return; }
   Tablet.fetch('data', u);
 }
+var lastSync = 'no sync attempted yet';
 function handleData(status, body) {
   var d = null;
+  // Kept for the setup panel, so a failed sync can be diagnosed on the tablet.
+  lastSync = (status ? 'HTTP ' + status : 'connection failed') + ': ' + String(body).substring(0, 300);
   try { d = JSON.parse(body); } catch (e) { }
   if (status === 200 && d && d.people && d.tasks && d.events) {
     data = d; store('data', d); render();
@@ -195,7 +198,8 @@ function applyCfg() {
 function showStatus() {
   if (!hasTablet) { $('camOut').innerHTML = 'Camera: (not running inside the tablet app)'; return; }
   var s = JSON.parse(Tablet.status());
-  $('camOut').innerHTML = 'Camera: ' + esc(s.camera) + '\nDimmed: ' + (s.dimmed ? 'yes' : 'no') + '\nMovement level now: ' + s.diff +
+  $('camOut').innerHTML = 'Linked to: ' + esc((Tablet.dataUrl() || '(not linked)').split('?')[0]) +
+    '\nLast sync: ' + esc(lastSync) + '\n\nCamera: ' + esc(s.camera) + '\nDimmed: ' + (s.dimmed ? 'yes' : 'no') + '\nMovement level now: ' + s.diff +
     '   (wakes at ' + cfg.thr + ' or more)\nMovements detected: ' + s.motions + '\nSeconds since last activity: ' + s.idleSeconds;
 }
 $('clock').addEventListener('click', function () {
