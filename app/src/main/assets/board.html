@@ -63,7 +63,7 @@
 var COLORS = ['#3f7fbf', '#b5586b', '#4d9a6a', '#c98a2b'];
 var CAL_COLOR = '#5b5f97';
 
-// Sample data until the tablet is linked to the family's Google Sheet and Calendar.
+// Sample data, shown only until the first successful sync with the family's Google Sheet and Calendar.
 var data = {
   people: ['Dad', 'Mom', 'Kid 1', 'Kid 2'],
   tasks: [
@@ -85,6 +85,7 @@ var data = {
   ]
 };
 
+var hasTablet = typeof Tablet !== 'undefined';
 function $(id) { return document.getElementById(id); }
 function store(key, val) {
   try {
@@ -94,6 +95,24 @@ function store(key, val) {
 }
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// ---- Sync with the Google web app (through the app, because this old browser can't make the request itself) ----
+function refresh() {
+  if (!hasTablet) return;
+  var u = Tablet.dataUrl();
+  if (!u) { $('sync').innerHTML = 'sample data (not linked yet)'; return; }
+  Tablet.fetch('data', u);
+}
+function handleData(status, body) {
+  var d = null;
+  try { d = JSON.parse(body); } catch (e) { }
+  if (status === 200 && d && d.people && d.tasks && d.events) {
+    data = d; store('data', d); render();
+    $('sync').innerHTML = 'Updated ' + $('clock').innerHTML;
+  } else {
+    // Keep showing the last good copy rather than blanking the board.
+    $('sync').innerHTML = 'Offline - showing last copy' + (d && d.error ? ' (' + esc(d.error) + ')' : '');
+  }
 }
 function today() { var d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
 
@@ -163,10 +182,9 @@ function shift() {
 }
 
 // Called by the app when it dims or wakes the screen. The black layer also swallows the wake-up tap.
-function onDim(d) { $('night').style.display = d ? 'block' : 'none'; }
+function onDim(d) { $('night').style.display = d ? 'block' : 'none'; if (!d) refresh(); }
 
 // ---- Setup panel: tap the clock five times quickly ----
-var hasTablet = typeof Tablet !== 'undefined';
 var cfg = store('cfg') || { dim: 120, thr: 8 };
 var taps = 0, tapTimer = null, statusTimer = null;
 function applyCfg() {
@@ -213,16 +231,20 @@ function showNet() {
 }
 // Called by the app when a Tablet.fetch finishes. Status 0 means the connection itself failed.
 function onFetch(id, status, body) {
+  if (id === 'data') { handleData(status, body); return; }
   netLines[id] = status ? 'OK (HTTP ' + status + ')' : 'FAILED: ' + String(body).substring(0, 200);
   showNet();
 }
 
+if (store('data')) data = store('data');
 render();
 tickClock();
 applyCfg();
 setInterval(tickClock, 5000);
 setInterval(shift, 4 * 60 * 1000);
 $('sync').innerHTML = 'sample data';
+refresh();
+setInterval(refresh, 5 * 60 * 1000);
 </script>
 </body>
 </html>

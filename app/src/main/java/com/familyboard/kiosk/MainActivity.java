@@ -70,6 +70,22 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
         setContentView(web);
         web.loadUrl("file:///android_asset/board.html");
         lastActivityAt = System.currentTimeMillis();
+        readLink(getIntent());
+    }
+
+    /** The PC links the tablet to the family's Google web app by launching the app with url + key extras. */
+    private boolean readLink(Intent it) {
+        String url = it == null ? null : it.getStringExtra("url");
+        String key = it == null ? null : it.getStringExtra("key");
+        // Any app can send this intent, so only accept Google Apps Script addresses.
+        if (url == null || key == null || !url.startsWith("https://script.google.com/")) return false;
+        getPreferences(MODE_PRIVATE).edit().putString("url", url).putString("key", key).commit();
+        return true;
+    }
+
+    @Override protected void onNewIntent(Intent it) {
+        super.onNewIntent(it);
+        if (readLink(it)) web.evaluateJavascript("refresh()", null);
     }
 
     @Override protected void onResume() {
@@ -230,6 +246,12 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
                     toPage("onFetch(" + JSONObject.quote(id) + "," + code + "," + JSONObject.quote(body) + ")");
                 }
             }).start();
+        }
+
+        /** Address the page should load tasks and events from; empty until the tablet is linked. */
+        @JavascriptInterface public String dataUrl() {
+            String url = getPreferences(MODE_PRIVATE).getString("url", "");
+            return url.length() == 0 ? "" : url + "?key=" + getPreferences(MODE_PRIVATE).getString("key", "");
         }
 
         @JavascriptInterface public void configure(int dimAfterSeconds, int threshold) {
