@@ -28,7 +28,6 @@ import javax.net.ssl.HttpsURLConnection;
  * dims it when the front camera sees no movement, and brightens on movement or touch.
  */
 public class MainActivity extends Activity implements Camera.PreviewCallback {
-    private static final float BRIGHT = 0.9f;
     private static final float DIM = 0.01f;
     private static final int GRID_W = 16, GRID_H = 12;
 
@@ -39,7 +38,7 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
     private int frameW, frameH;
     private int[] prevGrid;
     private long lastFrameAt, ignoreMotionUntil;
-    private boolean dimmed;
+    private volatile boolean dimmed;
 
     // Tunable from the page's setup panel; calibrated on the real tablet.
     private volatile long dimAfterMs = 2 * 60 * 1000;
@@ -118,10 +117,13 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
     private void setDimmed(boolean dim) {
         dimmed = dim;
         WindowManager.LayoutParams lp = getWindow().getAttributes();
-        lp.screenBrightness = dim ? DIM : BRIGHT;
+        // Awake = whatever brightness the tablet is set to; dimmed = backlight at minimum.
+        lp.screenBrightness = dim ? DIM : WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;
         getWindow().setAttributes(lp);
         // The screen's own light changes what the camera sees; don't count that as movement.
         ignoreMotionUntil = System.currentTimeMillis() + 3000;
+        // The page also goes black with a dim clock, so dimming shows even if the backlight barely changes.
+        web.evaluateJavascript("onDim(" + dim + ")", null);
     }
 
     private void startCamera() {
@@ -237,9 +239,15 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
 
         @JavascriptInterface public String status() {
             return "{\"camera\":" + JSONObject.quote(cameraState)
+                    + ",\"dimmed\":" + dimmed
                     + ",\"diff\":" + lastDiff
                     + ",\"motions\":" + motionCount
                     + ",\"idleSeconds\":" + (System.currentTimeMillis() - lastActivityAt) / 1000 + "}";
+        }
+
+        /** Setup-panel test: pretend nobody has been around, so the next tick dims. */
+        @JavascriptInterface public void dimNow() {
+            lastActivityAt = System.currentTimeMillis() - dimAfterMs - 1000;
         }
 
         /** The way out of the kiosk: opens Android's Settings. */

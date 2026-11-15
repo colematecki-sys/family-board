@@ -30,6 +30,8 @@
   .ev b { display: block; font-size: 13px; color: #6b665e; font-weight: normal; }
   #setup { display: none; position: absolute; left: 10%; right: 10%; top: 8%; bottom: 8%; background: #fff;
     border: 2px solid #2b2a28; border-radius: 12px; padding: 14px 18px; overflow-y: auto; font-size: 15px; z-index: 5; }
+  #night { display: none; position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #000; z-index: 9; }
+  #nightClock { position: absolute; color: #555; font-size: 64px; font-weight: bold; }
   #setup h2 { margin: 0 0 8px; font-size: 20px; }
   #setup button { font-size: 16px; padding: 10px 14px; margin: 4px 6px 4px 0; }
   #setup pre { background: #f4efe6; padding: 8px; white-space: pre-wrap; word-wrap: break-word; font-size: 13px; margin: 6px 0; }
@@ -43,6 +45,7 @@
     <h2>Setup &amp; diagnostics</h2>
     <div>
       <button id="btnTest">Test connection to Google</button>
+      <button id="btnDim">Dim now (test)</button>
       <button id="btnSettings">Open Android settings</button>
       <button id="btnClose">Close</button>
     </div>
@@ -55,6 +58,7 @@
     <pre id="camOut">Camera: ...</pre>
   </div>
 </div>
+<div id="night"><div id="nightClock"></div></div>
 <script>
 var COLORS = ['#3f7fbf', '#b5586b', '#4d9a6a', '#c98a2b'];
 var CAL_COLOR = '#5b5f97';
@@ -142,6 +146,9 @@ var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'A
 function tickClock() {
   var d = new Date(), h = d.getHours(), m = d.getMinutes();
   $('clock').innerHTML = ((h % 12) || 12) + ':' + (m < 10 ? '0' : '') + m + (h < 12 ? ' AM' : ' PM');
+  $('nightClock').innerHTML = $('clock').innerHTML;
+  // The dim clock sits somewhere different every minute.
+  $('nightClock').style.left = (5 + (m * 7) % 50) + '%'; $('nightClock').style.top = (10 + (m * 13) % 60) + '%';
   $('date').innerHTML = DAYS[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
   if (done.day !== today()) { done = { day: today(), ids: {} }; store('done', done); render(); }
 }
@@ -155,6 +162,9 @@ function shift() {
   w.top = (8 + s[1]) + 'px'; w.bottom = (8 - s[1]) + 'px';
 }
 
+// Called by the app when it dims or wakes the screen. The black layer also swallows the wake-up tap.
+function onDim(d) { $('night').style.display = d ? 'block' : 'none'; }
+
 // ---- Setup panel: tap the clock five times quickly ----
 var hasTablet = typeof Tablet !== 'undefined';
 var cfg = store('cfg') || { dim: 120, thr: 8 };
@@ -167,7 +177,7 @@ function applyCfg() {
 function showStatus() {
   if (!hasTablet) { $('camOut').innerHTML = 'Camera: (not running inside the tablet app)'; return; }
   var s = JSON.parse(Tablet.status());
-  $('camOut').innerHTML = 'Camera: ' + esc(s.camera) + '\nMovement level now: ' + s.diff +
+  $('camOut').innerHTML = 'Camera: ' + esc(s.camera) + '\nDimmed: ' + (s.dimmed ? 'yes' : 'no') + '\nMovement level now: ' + s.diff +
     '   (wakes at ' + cfg.thr + ' or more)\nMovements detected: ' + s.motions + '\nSeconds since last activity: ' + s.idleSeconds;
 }
 $('clock').addEventListener('click', function () {
@@ -177,6 +187,7 @@ $('clock').addEventListener('click', function () {
   if (taps >= 5) { taps = 0; $('setup').style.display = 'block'; showStatus(); statusTimer = setInterval(showStatus, 1000); }
 });
 $('btnClose').addEventListener('click', function () { $('setup').style.display = 'none'; clearInterval(statusTimer); });
+$('btnDim').addEventListener('click', function () { if (hasTablet) Tablet.dimNow(); });
 $('btnSettings').addEventListener('click', function () { if (hasTablet) Tablet.openSettings(); });
 $('dimMinus').addEventListener('click', function () { cfg.dim = Math.max(15, cfg.dim - 15); applyCfg(); });
 $('dimPlus').addEventListener('click', function () { cfg.dim += 15; applyCfg(); });
