@@ -124,7 +124,7 @@ var done = store('done') || {};
 if (done.day !== today()) done = { day: today(), ids: {} };
 
 function render() {
-  var html = '', n = data.people.length, calW = 22, w = (100 - calW) / n, i, j;
+  var html = '', n = data.people.length, calW = n ? 22 : 100, w = n ? (100 - calW) / n : 0, i, j; // no people yet: calendar fills the board
   for (i = 0; i < n; i++) {
     var mine = [], finished = 0, rows = '';
     for (j = 0; j < data.tasks.length; j++) if (data.tasks[j].person === data.people[i]) mine.push(data.tasks[j]);
