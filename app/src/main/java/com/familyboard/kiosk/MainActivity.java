@@ -219,6 +219,18 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
         return s < e ? (h >= s && h < e) : (h >= s || h < e);
     }
 
+    private volatile java.util.List<java.io.File> photos = new java.util.ArrayList<java.io.File>();
+
+    private static void addPhotos(java.io.File dir, java.util.List<java.io.File> into, int depth) {
+        java.io.File[] files = dir.listFiles();
+        if (files == null) return;
+        for (java.io.File f : files) {
+            String n = f.getName().toLowerCase();
+            if (f.isDirectory()) { if (depth > 0) addPhotos(f, into, depth - 1); }
+            else if (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png")) into.add(f);
+        }
+    }
+
     private void toPage(final String js) {
         ui.post(new Runnable() {
             @Override public void run() { web.evaluateJavascript(js, null); }
@@ -281,6 +293,53 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
         /** Setup-panel test: pretend nobody has been around, so the next tick dims. */
         @JavascriptInterface public void dimNow() {
             lastActivityAt = System.currentTimeMillis() - dimAfterMs - 1000;
+        }
+
+        /** How many slideshow photos are in the tablet's FamilyBoard folder (re-scanned on each call). */
+        @JavascriptInterface public int photoCount() {
+            java.util.ArrayList<java.io.File> found = new java.util.ArrayList<java.io.File>();
+            addPhotos(new java.io.File(android.os.Environment.getExternalStorageDirectory(), "FamilyBoard"), found, 2);
+            java.util.Collections.sort(found);
+            photos = found;
+            return found.size();
+        }
+
+        /**
+         * One photo as base64 JPEG, shrunk to roughly screen size and turned upright.
+         * Phone photos are far too big for this tablet's memory at full size. Returns "" if it can't be read.
+         */
+        @JavascriptInterface public String photo(int index) {
+            try {
+                java.util.List<java.io.File> list = photos;
+                if (index < 0 || index >= list.size()) return "";
+                String path = list.get(index).getPath();
+                android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+                o.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeFile(path, o);
+                int sample = 1;
+                while (Math.max(o.outWidth, o.outHeight) / sample > 1600) sample *= 2;
+                o = new android.graphics.BitmapFactory.Options();
+                o.inSampleSize = sample;
+                android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeFile(path, o);
+                if (bmp == null) return "";
+                int turn = 0;
+                int orient = new android.media.ExifInterface(path).getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL);
+                if (orient == android.media.ExifInterface.ORIENTATION_ROTATE_90) turn = 90;
+                if (orient == android.media.ExifInterface.ORIENTATION_ROTATE_180) turn = 180;
+                if (orient == android.media.ExifInterface.ORIENTATION_ROTATE_270) turn = 270;
+                if (turn != 0) {
+                    android.graphics.Matrix m = new android.graphics.Matrix();
+                    m.postRotate(turn);
+                    bmp = android.graphics.Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), m, true);
+                }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out);
+                bmp.recycle();
+                return android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP);
+            } catch (Throwable t) { // includes running out of memory on a huge image
+                return "";
+            }
         }
 
         /** The way out of the kiosk: opens Android's Settings. */

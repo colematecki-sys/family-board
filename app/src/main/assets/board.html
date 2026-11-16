@@ -79,6 +79,22 @@
   .noev { padding: 8px; color: #c2bcb0; font-size: 12px; }
   #setup { display: none; position: absolute; left: 10%; right: 10%; top: 8%; bottom: 8%; background: #fff;
     border: 2px solid #2b2a28; border-radius: 12px; padding: 14px 18px; overflow-y: auto; font-size: 15px; z-index: 5; }
+  /* Month tab */
+  .v-month .col, .v-month .day { display: none; }
+  #month { position: absolute; left: 0; right: 0; top: 50px; bottom: 0; background: #fff; border-radius: 10px; overflow: hidden; }
+  .hasinfo #month { top: 78px; }
+  .mhead { position: absolute; top: 0; height: 24px; line-height: 24px; text-align: center; font-size: 12px; font-weight: bold;
+    background: #5b5f97; color: #fff; }
+  #mgrid { position: absolute; left: 0; right: 0; top: 24px; bottom: 0; }
+  .mcell { position: absolute; overflow: hidden; border-right: 1px solid #eee8dc; border-bottom: 1px solid #eee8dc; box-sizing: border-box; }
+  .mcell b { display: block; padding: 2px 6px 0; font-size: 14px; }
+  .mcell.today b { background: #2b2a28; color: #fff; }
+  .mev { margin: 1px 3px 0; padding-left: 4px; border-left: 3px solid #999; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; }
+  .mmore { padding: 0 6px; font-size: 10px; color: #8a8478; }
+  /* Photo slideshow on the idle screen */
+  #photo { display: none; position: absolute; left: 0; top: 0; right: 0; bottom: 0; margin: auto; max-width: 100%; max-height: 100%; }
+  .photos #photo { display: block; }
+  .photos #nightClock { font-size: 22px; color: #ddd; left: 12px !important; top: auto !important; bottom: 8px; text-shadow: 0 0 4px #000; }
   #night { display: none; position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #000; z-index: 9; }
   #nightClock { position: absolute; color: #555; font-size: 64px; font-weight: bold; }
   #setup h2 { margin: 0 0 8px; font-size: 20px; }
@@ -99,6 +115,7 @@
     <div>
       <button id="btnTest">Test connection to Google</button>
       <button id="btnDim">Dim now (test)</button>
+      <button id="btnPhotos"></button>
       <button id="btnSettings">Open Android settings</button>
       <button id="btnClose">Close</button>
     </div>
@@ -118,7 +135,7 @@
     <pre id="camOut">Camera: ...</pre>
   </div>
 </div>
-<div id="night"><div id="nightClock"></div></div>
+<div id="night"><img id="photo"><div id="nightClock"></div></div>
 <script>
 var COLORS = ['#3f7fbf', '#b5586b', '#4d9a6a', '#c98a2b'];
 var CAL_COLOR = '#5b5f97';
@@ -191,7 +208,8 @@ function handleData(status, body) {
   }
 }
 var armed = null; // id of the finished task currently showing "Delete? Yes / No"
-var view = 'home', focus = null, openDay = -1; // which tab, which single person (if any), which day is enlarged
+var view = 'home', focus = null, detail = null; // which tab, which single person (if any), which day is enlarged
+var month = store('month'), monthAt = 0;       // the Month tab's data and when it was fetched
 function hiddenCal(ev) { return ev.cal && cfg.hide.indexOf(ev.cal) >= 0; }
 function evHtml(ev) {
   return '<div class="ev"' + (ev.color ? ' style="border-left-color:' + esc(ev.color) + '"' : '') + '><b>' + esc(ev.time) + '</b>' + esc(ev.title) + '</div>';
@@ -251,11 +269,32 @@ function render() {
     html += '<div class="day' + (i === 0 ? ' today' : '') + '" data-day="' + i + '" style="left:' + (i * dw) + '%;width:' + (dw - (i < nd - 1 ? 0.7 : 0)) + '%">' +
       '<div class="dayhead">' + esc(data.days[i].label) + '</div><div class="daylist">' + (ev || '<div class="noev">-</div>') + '</div></div>';
   }
+  if (view === 'month' && focus === null) {
+    var mh = '', WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (i = 0; i < 7; i++) mh += '<div class="mhead" style="left:' + (i * 100 / 7) + '%;width:' + (100 / 7) + '%">' + WD[i] + '</div>';
+    if (!month) mh += '<div id="mgrid"><div class="empty">Loading the month...</div></div>';
+    else {
+      var rowsN = Math.ceil((month.offset + month.days.length) / 7), fit = rowsN > 5 ? 3 : 4;
+      mh += '<div id="mgrid">';
+      for (i = 0; i < month.days.length; i++) {
+        var at = month.offset + i, list = [], cell = '';
+        for (j = 0; j < month.days[i].length; j++) if (!hiddenCal(month.days[i][j])) list.push(month.days[i][j]);
+        for (j = 0; j < list.length && j < fit; j++) {
+          cell += '<div class="mev"' + (list[j].color ? ' style="border-left-color:' + esc(list[j].color) + '"' : '') + '>' + esc(list[j].title) + '</div>';
+        }
+        if (list.length > fit) cell += '<div class="mmore">+' + (list.length - fit) + ' more</div>';
+        mh += '<div class="mcell' + (i + 1 === month.today ? ' today' : '') + '" data-mday="' + (i + 1) + '" style="left:' + ((at % 7) * 100 / 7) +
+          '%;width:' + (100 / 7) + '%;top:' + (Math.floor(at / 7) * 100 / rowsN) + '%;height:' + (100 / rowsN) + '%"><b>' + (i + 1) + '</b>' + cell + '</div>';
+      }
+      mh += '</div>';
+    }
+    html += '<div id="month">' + mh + '</div>';
+  }
   $('cols').innerHTML = html;
   $('cols').className = 'v-' + (focus !== null ? 'tasks' : view);
   if ($('newTask')) $('newTask').focus();
   // Tabs: the three views, then one per shared list such as Groceries.
-  var names = { home: 'Home', week: 'Week', tasks: 'Tasks' }, th = '';
+  var names = { home: 'Home', week: 'Week', month: 'Month', tasks: 'Tasks' }, th = '';
   for (var v in names) th += '<span data-view="' + v + '"' + (v === view && focus === null ? ' class="on"' : '') + '>' + names[v] + '</span>';
   for (i = 0; i < shared.length; i++) th += '<span data-shared="' + i + '"' + (focus === shared[i] ? ' class="on"' : '') + '>' + esc(shared[i]) + '</span>';
   $('tabs').innerHTML = th;
@@ -270,25 +309,30 @@ function render() {
   $('weather').innerHTML = wx ? esc(wx.now + '\u00b0 ' + wx.text + '  \u2191' + wx.hi + '\u00b0 \u2193' + wx.lo + '\u00b0') : '';
   // Enlarged single day
   var dv = $('dayview');
-  if (openDay >= 0 && data.days[openDay]) {
-    var big = '', de = data.days[openDay].events;
+  if (detail) {
+    var big = '', de = detail.events;
     for (j = 0; j < de.length; j++) if (!hiddenCal(de[j])) big += evHtml(de[j]);
-    dv.innerHTML = '<h2>' + esc(data.days[openDay].label) + '<span>tap to close</span></h2>' + (big || '<div class="empty">Nothing scheduled</div>');
+    dv.innerHTML = '<h2>' + esc(detail.label) + '<span>tap to close</span></h2>' + (big || '<div class="empty">Nothing scheduled</div>');
     dv.style.display = 'block';
-  } else { openDay = -1; dv.style.display = 'none'; }
+  } else dv.style.display = 'none';
 }
 // Navigation: tabs, tap a day to enlarge it, tap a name to show only that person. Returns to Home when left alone.
 var homeTimer = null;
-function goHome() { view = 'home'; focus = null; openDay = -1; armed = null; adding = null; addText = ''; render(); }
+function goHome() { view = 'home'; focus = null; detail = null; armed = null; adding = null; addText = ''; render(); }
 function touched() { clearTimeout(homeTimer); homeTimer = setTimeout(goHome, 60000); }
 document.addEventListener('click', touched, true);
 document.addEventListener('input', touched, true); // typing a new task counts as activity
 $('tabs').addEventListener('click', function (e) {
   var v = e.target.getAttribute('data-view'), sh = e.target.getAttribute('data-shared');
-  if (v) { view = v; focus = null; openDay = -1; adding = null; render(); }
-  if (sh !== null) { focus = (data.shared || [])[+sh]; openDay = -1; adding = null; render(); }
+  if (v) { view = v; focus = null; detail = null; adding = null; render(); if (v === 'month') loadMonth(); }
+  if (sh !== null) { focus = (data.shared || [])[+sh]; detail = null; adding = null; render(); }
 });
-$('dayview').addEventListener('click', function () { openDay = -1; render(); });
+$('dayview').addEventListener('click', function () { detail = null; render(); });
+// The month is fetched when its tab opens, and again if the copy is more than ten minutes old.
+function loadMonth() {
+  var u = hasTablet ? Tablet.dataUrl() : '';
+  if (u && new Date().getTime() - monthAt > 600000) Tablet.fetch('month', u + '&action=month');
+}
 
 // Adds what was typed to the open person's list: shown at once, then saved to Google Tasks.
 function addTask() {
@@ -324,7 +368,11 @@ $('cols').addEventListener('click', function (e) {
     if (up.getAttribute('data-addno')) { adding = null; addText = ''; render(); return; }
     if (up.getAttribute('data-addok')) { addTask(); return; }
     if (up.id === 'newTask') return;
-    if (up.getAttribute('data-day')) { openDay = +up.getAttribute('data-day'); render(); return; }
+    if (up.getAttribute('data-day')) { detail = data.days[+up.getAttribute('data-day')]; render(); return; }
+    if (up.getAttribute('data-mday')) {
+      var md = +up.getAttribute('data-mday');
+      detail = { label: month.title.split(' ')[0] + ' ' + md, events: month.days[md - 1] }; render(); return;
+    }
     up = up.parentNode;
   }
   while (el && el !== this && !(el.className && /\btask\b/.test(el.className))) el = el.parentNode;
@@ -370,8 +418,25 @@ function shift() {
 }
 
 // Called by the app when it dims or wakes the screen. The black layer also swallows the wake-up tap.
-var isDim = false;
-function onDim(d) { isDim = d; $('night').style.display = d ? 'block' : 'none'; if (d) goHome(); else refresh(); }
+var isDim = false, photoTimer = null, photoAt = -1;
+function quietNow() {
+  var h = new Date().getHours(), a = cfg.qs, b = cfg.qe;
+  return a === b ? false : a < b ? (h >= a && h < b) : (h >= a || h < b);
+}
+// Idle screen: family photos from the tablet's FamilyBoard folder, or the black clock (always the clock in quiet hours).
+function nextPhoto() {
+  var n = cfg.photos && !quietNow() && hasTablet && Tablet.photoCount ? Tablet.photoCount() : 0, pic = '';
+  if (n) { photoAt = (photoAt + 1) % n; pic = Tablet.photo(photoAt); }
+  if (pic) $('photo').src = 'data:image/jpeg;base64,' + pic;
+  $('night').className = pic ? 'photos' : '';
+}
+function onDim(d) {
+  isDim = d;
+  $('night').style.display = d ? 'block' : 'none';
+  clearInterval(photoTimer);
+  if (d) { goHome(); nextPhoto(); photoTimer = setInterval(nextPhoto, 30000); }
+  else { $('night').className = ''; refresh(); }
+}
 
 // ---- Setup panel: tap the clock five times quickly ----
 function hourName(h) { return ' ' + ((h % 12) || 12) + (h < 12 ? ' AM ' : ' PM '); }
@@ -389,6 +454,8 @@ function applyCfg() {
   $('dimVal').innerHTML = ' ' + cfg.dim; $('thrVal').innerHTML = ' ' + cfg.thr + ' ';
   $('qsVal').innerHTML = hourName(cfg.qs); $('qeVal').innerHTML = hourName(cfg.qe) + (cfg.qs === cfg.qe ? '(off) ' : '');
   showCals();
+  $('btnPhotos').innerHTML = 'Idle screen: ' + (cfg.photos ? 'photos' : 'black clock') +
+    (hasTablet && Tablet.photoCount ? ' (' + Tablet.photoCount() + ' photos on tablet)' : '');
   if (hasTablet) Tablet.configure(cfg.dim, cfg.thr, cfg.qs, cfg.qe);
 }
 function showStatus() {
@@ -406,6 +473,7 @@ $('clock').addEventListener('click', function () {
 });
 $('btnClose').addEventListener('click', function () { $('setup').style.display = 'none'; clearInterval(statusTimer); });
 $('btnDim').addEventListener('click', function () { if (hasTablet) Tablet.dimNow(); });
+$('btnPhotos').addEventListener('click', function () { cfg.photos = !cfg.photos; applyCfg(); });
 $('btnSettings').addEventListener('click', function () { if (hasTablet) Tablet.openSettings(); });
 $('dimMinus').addEventListener('click', function () { cfg.dim = Math.max(15, cfg.dim - 15); applyCfg(); });
 $('dimPlus').addEventListener('click', function () { cfg.dim += 15; applyCfg(); });
@@ -443,6 +511,12 @@ function showNet() {
 // Called by the app when a Tablet.fetch finishes. Status 0 means the connection itself failed.
 function onFetch(id, status, body) {
   if (id === 'data') { handleData(status, body); return; }
+  if (id === 'month') {
+    var mo = null;
+    try { mo = JSON.parse(body); } catch (e) { }
+    if (status === 200 && mo && mo.days && mo.title) { month = mo; monthAt = new Date().getTime(); store('month', mo); render(); }
+    return;
+  }
   if (id === 'act') {
     pending = Math.max(0, pending - 1);
     if (status !== 200 || body.indexOf('"ok"') < 0) lastSync = 'check-off not saved: ' + String(body).substring(0, 200);

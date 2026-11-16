@@ -29,6 +29,7 @@ function doGet(e) {
     Tasks.Tasks.insert({ title: title }, p.list);
     return json({ ok: true });
   }
+  if (p.action === 'month') return json(readMonth());
   var board = readTasks();
   var cal = readCalendar();
   board.days = cal.days;
@@ -75,56 +76,87 @@ function readTasks() {
   return { people: people, shared: shared, lists: lists, tasks: tasks, note: note };
 }
 
-// Calendar: seven days starting today, countdowns to birthdays in the next 30 days, and tonight's dinner.
-// Read once per calendar and kept for three minutes, because this is the slow part of every refresh.
-function readCalendar() {
-  var cache = CacheService.getScriptCache(), hit = cache.get('calendar');
-  if (hit) return JSON.parse(hit);
-  var tz = Session.getScriptTimeZone(), now = new Date(), DAY = 86400000;
-  var start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  var dayStart = function (i) { return new Date(now.getFullYear(), now.getMonth(), now.getDate() + i); };
-  var cals = CalendarApp.getAllCalendars().filter(function (c) { return !c.isHidden() && c.isSelected(); });
-  var buckets = [], seen = {}, countdowns = [], dinner = '';
-  for (var i = 0; i < 7; i++) buckets.push([]);
-  cals.forEach(function (cal) {
+function shownCalendars() {
+  return CalendarApp.getAllCalendars().filter(function (c) { return !c.isHidden() && c.isSelected(); });
+}
+
+// Sorts every event from `first` for `n` days into one list per day. An event spanning several days appears on each.
+function eventsByDay(first, n, skipFinished) {
+  var tz = Session.getScriptTimeZone(), now = new Date();
+  var dayStart = function (i) { return new Date(first.getFullYear(), first.getMonth(), first.getDate() + i); };
+  var buckets = [], seen = {};
+  for (var i = 0; i < n; i++) buckets.push([]);
+  shownCalendars().forEach(function (cal) {
     var name = cal.getName(), color = cal.getColor();
-    cal.getEvents(start, dayStart(30)).forEach(function (ev) {
+    cal.getEvents(first, dayStart(n)).forEach(function (ev) {
       var allDay = ev.isAllDayEvent(), title = ev.getTitle();
       var from = allDay ? ev.getAllDayStartDate() : ev.getStartTime();
       var to = allDay ? ev.getAllDayEndDate() : ev.getEndTime(); // all-day end is the morning after the last day
-      // Countdown: all-day events that look like a birthday, or whose title starts with "Countdown".
-      if (allDay && from >= dayStart(1) && /birthday|^countdown/i.test(title)) {
-        countdowns.push({ title: title.replace(/^countdown:?\s*/i, ''), days: Math.round((from - start) / DAY) });
-      }
-      for (var i = 0; i < 7; i++) {
+      for (var i = 0; i < n; i++) {
         var a = dayStart(i), b = dayStart(i + 1);
-        if (from >= b || to <= a) continue;          // not on this day
-        if (!allDay && to < now) continue;           // already over
+        if (from >= b || to <= a) continue;                   // not on this day
+        if (skipFinished && !allDay && to < now) continue;    // already over
         var key = i + '|' + (allDay ? 0 : from.getTime()) + '|' + title;
         if (seen[key]) continue;
         seen[key] = true;
-        if (i === 0 && /^dinner\b/i.test(title)) dinner = title.replace(/^dinner:?\s*/i, '') || title;
         buckets[i].push({
           at: allDay ? 0 : from.getTime(), time: allDay ? 'All day' : Utilities.formatDate(from, tz, 'h:mm a'),
-          title: title, cal: name, color: color
+          title: title, cal: name, color: color, allDay: allDay, starts: from >= a
         });
       }
     });
   });
-  countdowns.sort(function (a, b) { return a.days - b.days; });
+  buckets.forEach(function (found) { found.sort(function (a, b) { return a.at - b.at; }); });
+  return buckets;
+}
+function slim(found) {
+  return found.map(function (f) { return { time: f.time, title: f.title, cal: f.cal, color: f.color }; });
+}
+
+// Calendar: seven days starting today, countdowns to birthdays in the next 30 days, and tonight's dinner.
+// Kept for three minutes, because this is the slow part of every refresh.
+function readCalendar() {
+  var cache = CacheService.getScriptCache(), hit = cache.get('calendar');
+  if (hit) return JSON.parse(hit);
+  var tz = Session.getScriptTimeZone(), now = new Date();
+  var start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var buckets = eventsByDay(start, 30, true), countdowns = [], dinner = '';
+  buckets.forEach(function (found, i) {
+    found.forEach(function (f) {
+      // Countdown: all-day events that look like a birthday, or whose title starts with "Countdown".
+      if (i > 0 && f.allDay && f.starts && /birthday|^countdown/i.test(f.title)) {
+        countdowns.push({ title: f.title.replace(/^countdown:?\s*/i, ''), days: i });
+      }
+      if (i === 0 && /^dinner\b/i.test(f.title)) dinner = f.title.replace(/^dinner:?\s*/i, '') || f.title;
+    });
+  });
   var result = {
-    days: buckets.map(function (found, i) {
-      found.sort(function (a, b) { return a.at - b.at; });
-      return {
-        label: i === 0 ? 'Today' : Utilities.formatDate(dayStart(i), tz, 'EEE d'),
-        events: found.map(function (f) { return { time: f.time, title: f.title, cal: f.cal, color: f.color }; })
-      };
+    days: buckets.slice(0, 7).map(function (found, i) {
+      var day = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      return { label: i === 0 ? 'Today' : Utilities.formatDate(day, tz, 'EEE d'), events: slim(found) };
     }),
-    calendars: cals.map(function (c) { return { name: c.getName(), color: c.getColor() }; }),
+    calendars: shownCalendars().map(function (c) { return { name: c.getName(), color: c.getColor() }; }),
     countdowns: countdowns.slice(0, 3),
     dinner: dinner
   };
   cache.put('calendar', JSON.stringify(result), 180);
+  return result;
+}
+
+// The whole current month for the Month tab. Kept for ten minutes.
+function readMonth() {
+  var cache = CacheService.getScriptCache(), hit = cache.get('month');
+  if (hit) return JSON.parse(hit);
+  var tz = Session.getScriptTimeZone(), now = new Date();
+  var first = new Date(now.getFullYear(), now.getMonth(), 1);
+  var n = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  var result = {
+    title: Utilities.formatDate(first, tz, 'MMMM yyyy'),
+    offset: first.getDay(), // weekday of the 1st, Sunday = 0
+    today: now.getDate(),
+    days: eventsByDay(first, n, false).map(slim)
+  };
+  cache.put('month', JSON.stringify(result), 600);
   return result;
 }
 
@@ -190,9 +222,11 @@ function selfTest() {
     if (mine()) throw new Error('delete did not stick');
     var b = board();
     if (b.days.length !== 7 || !b.lists[b.people[0]]) throw new Error('board shape is wrong');
+    var m = JSON.parse(doGet({ parameter: { key: KEY, action: 'month' } }).getContent());
+    if (m.days.length < 28 || m.days.length > 31 || !m.title) throw new Error('month shape is wrong');
     Logger.log('SELFTEST PASSED people=' + b.people.join(',') + ' shared=' + b.shared.join(',') +
       ' countdowns=' + JSON.stringify(b.countdowns) + ' dinner=' + b.dinner + ' note=' + b.note +
-      ' weather=' + JSON.stringify(b.weather));
+      ' weather=' + JSON.stringify(b.weather) + ' month=' + m.title + '/' + m.days.length);
   } finally {
     try { Tasks.Tasks.remove(t.list, t.id); } catch (err) { } // already gone when the delete step passed
   }
