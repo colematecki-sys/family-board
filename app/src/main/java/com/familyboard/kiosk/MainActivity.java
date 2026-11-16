@@ -43,6 +43,7 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
     // Tunable from the page's setup panel; calibrated on the real tablet.
     private volatile long dimAfterMs = 2 * 60 * 1000;
     private volatile int motionThreshold = 8;
+    private volatile int quietStart = 22, quietEnd = 6; // hours of the day; equal = no quiet hours
     private volatile long lastActivityAt;
     private volatile int lastDiff, motionCount;
     private volatile String cameraState = "not started";
@@ -203,12 +204,19 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
             int sum = 0;
             for (int i = 0; i < grid.length; i++) sum += Math.abs(grid[i] - prevGrid[i]);
             lastDiff = sum / grid.length;
-            if (lastDiff >= motionThreshold && now > ignoreMotionUntil) {
+            if (lastDiff >= motionThreshold && now > ignoreMotionUntil && !inQuietHours()) {
                 motionCount++;
                 wake();
             }
         }
         prevGrid = grid;
+    }
+
+    /** During quiet hours movement doesn't wake the screen (a touch still does). */
+    private boolean inQuietHours() {
+        int s = quietStart, e = quietEnd, h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        if (s == e) return false;
+        return s < e ? (h >= s && h < e) : (h >= s || h < e);
     }
 
     private void toPage(final String js) {
@@ -254,14 +262,17 @@ public class MainActivity extends Activity implements Camera.PreviewCallback {
             return url.length() == 0 ? "" : url + "?key=" + getPreferences(MODE_PRIVATE).getString("key", "");
         }
 
-        @JavascriptInterface public void configure(int dimAfterSeconds, int threshold) {
+        @JavascriptInterface public void configure(int dimAfterSeconds, int threshold, int quietFrom, int quietTo) {
             dimAfterMs = Math.max(10, dimAfterSeconds) * 1000L;
             motionThreshold = Math.max(1, threshold);
+            quietStart = ((quietFrom % 24) + 24) % 24;
+            quietEnd = ((quietTo % 24) + 24) % 24;
         }
 
         @JavascriptInterface public String status() {
             return "{\"camera\":" + JSONObject.quote(cameraState)
                     + ",\"dimmed\":" + dimmed
+                    + ",\"quiet\":" + inQuietHours()
                     + ",\"diff\":" + lastDiff
                     + ",\"motions\":" + motionCount
                     + ",\"idleSeconds\":" + (System.currentTimeMillis() - lastActivityAt) / 1000 + "}";

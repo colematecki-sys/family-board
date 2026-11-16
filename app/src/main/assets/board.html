@@ -14,6 +14,27 @@
   #head { position: absolute; left: 0; right: 0; top: 0; height: 44px; line-height: 44px; }
   #clock { float: left; font-size: 30px; font-weight: bold; padding: 0 10px 0 4px; }
   #date { float: left; font-size: 18px; color: #6b665e; }
+  #tabs { float: left; margin-left: 14px; }
+  #tabs span { display: inline-block; height: 32px; line-height: 32px; padding: 0 14px; margin-right: 6px; border-radius: 16px;
+    background: #e6dfd2; color: #6b665e; font-size: 15px; vertical-align: middle; }
+  #tabs span.on { background: #2b2a28; color: #fff; }
+  /* Views: Home shows both; Week gives the days the full height; Tasks gives the people the full height. */
+  .v-week .col, .v-tasks .day { display: none; }
+  .v-week .day { height: auto; bottom: 0; }
+  .v-week .ev { font-size: 16px; line-height: 20px; padding: 6px 8px 7px; }
+  .v-week .ev b { font-size: 13px; }
+  .v-tasks .col { top: 50px; }
+  .focus .task { font-size: 26px; line-height: 30px; min-height: 44px; padding-top: 14px; padding-bottom: 14px; }
+  .focus .colhead { font-size: 22px; }
+  /* One day, large enough to read from across the room. Tap anywhere to close. */
+  #dayview { display: none; position: absolute; left: 0; top: 50px; right: 0; bottom: 0; background: #fff; border-radius: 10px;
+    overflow-y: auto; -webkit-overflow-scrolling: touch; z-index: 4; }
+  #dayview h2 { margin: 0; padding: 10px 16px; background: #2b2a28; color: #fff; font-size: 24px; }
+  #dayview h2 span { float: right; font-weight: normal; font-size: 15px; opacity: 0.8; }
+  #dayview .ev { font-size: 24px; line-height: 30px; padding: 10px 16px; border-left-width: 8px; }
+  #dayview .ev b { font-size: 16px; }
+  .cal { display: inline-block; padding: 8px 12px; margin: 3px 6px 3px 0; border-radius: 6px; background: #eee8dc; border-left: 8px solid #999; }
+  .cal.off { opacity: 0.45; text-decoration: line-through; }
   #sync { float: right; font-size: 13px; color: #9a948a; padding-right: 6px; }
   .col { position: absolute; top: 262px; bottom: 0; background: #fff; border-radius: 10px; overflow: hidden; }
   .colhead { height: 34px; line-height: 34px; padding: 0 12px; color: #fff; font-size: 18px; font-weight: bold; }
@@ -38,7 +59,8 @@
   .dayhead { height: 26px; line-height: 26px; padding: 0 8px; background: #5b5f97; color: #fff; font-size: 14px; font-weight: bold; }
   .day.today .dayhead { background: #2b2a28; }
   .daylist { position: absolute; top: 26px; bottom: 0; left: 0; right: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  .ev { padding: 4px 8px 5px; font-size: 13px; line-height: 16px; border-bottom: 1px solid #eee8dc; word-wrap: break-word; }
+  .ev { padding: 4px 8px 5px; font-size: 13px; line-height: 16px; border-bottom: 1px solid #eee8dc; word-wrap: break-word;
+    border-left: 4px solid transparent; }
   .ev b { display: block; font-size: 11px; color: #6b665e; font-weight: normal; }
   .noev { padding: 8px; color: #c2bcb0; font-size: 12px; }
   #setup { display: none; position: absolute; left: 10%; right: 10%; top: 8%; bottom: 8%; background: #fff;
@@ -52,8 +74,11 @@
 </head>
 <body>
 <div id="wrap">
-  <div id="head"><div id="clock"></div><div id="date"></div><div id="sync"></div></div>
+  <div id="head"><div id="clock"></div><div id="date"></div>
+    <div id="tabs"><span data-view="home">Home</span><span data-view="week">Week</span><span data-view="tasks">Tasks</span></div>
+    <div id="sync"></div></div>
   <div id="cols"></div>
+  <div id="dayview"></div>
   <div id="setup">
     <h2>Setup &amp; diagnostics</h2>
     <div>
@@ -68,6 +93,13 @@
       &nbsp; Motion sensitivity (lower = more sensitive)
       <button id="thrMinus">-</button><b id="thrVal"></b><button id="thrPlus">+</button>
     </div>
+    <div>Quiet hours - stays dark and ignores movement; a touch still wakes it.</div>
+    <div>From
+      <button id="qsMinus">-</button><b id="qsVal"></b><button id="qsPlus">+</button> to
+      <button id="qeMinus">-</button><b id="qeVal"></b><button id="qePlus">+</button>
+    </div>
+    <div>Calendars shown (tap to hide or show):</div>
+    <div id="cals"></div>
     <pre id="camOut">Camera: ...</pre>
   </div>
 </div>
@@ -91,14 +123,15 @@ var data = {
     { id: 't9', person: 'Kid 2', title: 'Put toys away' }
   ],
   days: [
-    { label: 'Today', events: [{ time: '5:30 PM', title: 'Basketball practice' }, { time: '7:00 PM', title: 'Family dinner' }] },
-    { label: 'Mon 16', events: [{ time: '8:15 AM', title: 'Dentist' }] },
+    { label: 'Today', events: [{ time: '5:30 PM', title: 'Basketball practice', cal: 'Kids', color: '#4d9a6a' }, { time: '7:00 PM', title: 'Family dinner', cal: 'Family', color: '#c98a2b' }] },
+    { label: 'Mon 16', events: [{ time: '8:15 AM', title: 'Dentist', cal: 'Family', color: '#c98a2b' }, { time: '9:00 AM', title: 'Work', cal: 'Work', color: '#3f7fbf' }] },
     { label: 'Tue 17', events: [] },
     { label: 'Wed 18', events: [{ time: 'All day', title: 'Library books due' }] },
     { label: 'Thu 19', events: [] },
     { label: 'Fri 20', events: [{ time: '6:00 PM', title: 'Movie night' }] },
     { label: 'Sat 21', events: [{ time: '9:00 AM', title: 'Game' }] }
-  ]
+  ],
+  calendars: [{ name: 'Family', color: '#c98a2b' }, { name: 'Kids', color: '#4d9a6a' }, { name: 'Work', color: '#3f7fbf' }]
 };
 
 var hasTablet = typeof Tablet !== 'undefined';
@@ -109,6 +142,12 @@ function store(key, val) {
     localStorage.setItem(key, JSON.stringify(val));
   } catch (e) { return null; }
 }
+// Settings kept on the tablet. Quiet hours default to 10 PM - 6 AM; hide = calendar names not shown.
+var cfg = store('cfg') || {};
+if (cfg.dim === undefined) cfg.dim = 120;
+if (cfg.thr === undefined) cfg.thr = 8;
+if (cfg.qs === undefined) { cfg.qs = 22; cfg.qe = 6; }
+if (!cfg.hide) cfg.hide = [];
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -135,9 +174,16 @@ function handleData(status, body) {
   }
 }
 var armed = null; // id of the finished task currently showing "Delete? Yes / No"
+var view = 'home', focus = null, openDay = -1; // which tab, which single person (if any), which day is enlarged
+function hiddenCal(ev) { return ev.cal && cfg.hide.indexOf(ev.cal) >= 0; }
+function evHtml(ev) {
+  return '<div class="ev"' + (ev.color ? ' style="border-left-color:' + esc(ev.color) + '"' : '') + '><b>' + esc(ev.time) + '</b>' + esc(ev.title) + '</div>';
+}
 function render() {
   var html = '', n = data.people.length, w = n ? 100 / n : 0, i, j;
+  if (focus !== null && data.people.indexOf(focus) < 0) focus = null;
   for (i = 0; i < n; i++) {
+    if (focus !== null && data.people[i] !== focus) continue;
     var mine = [], finished = 0, rows = '';
     for (j = 0; j < data.tasks.length; j++) if (data.tasks[j].person === data.people[i]) mine.push(data.tasks[j]);
     // Unfinished first, finished at the bottom.
@@ -153,20 +199,42 @@ function render() {
           : '<span class="del" data-del="1">&#10005;</span>') + '</div>';
     }
     if (!mine.length) rows = '<div class="empty">Nothing to do</div>';
-    html += '<div class="col" style="left:' + (i * w) + '%;width:' + (w - (i < n - 1 ? 1 : 0)) + '%">' +
-      '<div class="colhead" style="background:' + COLORS[i % 4] + '">' + esc(data.people[i]) +
+    html += '<div class="col' + (focus !== null ? ' focus' : '') + '" style="left:' + (focus !== null ? 0 : i * w) + '%;width:' +
+      (focus !== null ? 100 : w - (i < n - 1 ? 1 : 0)) + '%">' +
+      '<div class="colhead" data-person="' + i + '" style="background:' + COLORS[i % 4] + '">' + esc(data.people[i]) +
       '<span>' + finished + '/' + mine.length + '</span></div><div class="list">' + rows + '</div></div>';
   }
   if (!n) html += '<div class="col" style="left:0;width:100%"><div class="empty">No task lists yet. Add a list in Google Tasks for each person.</div></div>';
   var nd = data.days.length, dw = nd ? 100 / nd : 0;
   for (i = 0; i < nd; i++) {
     var ev = '', evs = data.days[i].events;
-    for (j = 0; j < evs.length; j++) ev += '<div class="ev"><b>' + esc(evs[j].time) + '</b>' + esc(evs[j].title) + '</div>';
-    html += '<div class="day' + (i === 0 ? ' today' : '') + '" style="left:' + (i * dw) + '%;width:' + (dw - (i < nd - 1 ? 0.7 : 0)) + '%">' +
+    for (j = 0; j < evs.length; j++) if (!hiddenCal(evs[j])) ev += evHtml(evs[j]);
+    html += '<div class="day' + (i === 0 ? ' today' : '') + '" data-day="' + i + '" style="left:' + (i * dw) + '%;width:' + (dw - (i < nd - 1 ? 0.7 : 0)) + '%">' +
       '<div class="dayhead">' + esc(data.days[i].label) + '</div><div class="daylist">' + (ev || '<div class="noev">-</div>') + '</div></div>';
   }
   $('cols').innerHTML = html;
+  $('cols').className = 'v-' + (focus !== null ? 'tasks' : view);
+  var tabs = $('tabs').children;
+  for (i = 0; i < tabs.length; i++) tabs[i].className = tabs[i].getAttribute('data-view') === view && focus === null ? 'on' : '';
+  // Enlarged single day
+  var dv = $('dayview');
+  if (openDay >= 0 && data.days[openDay]) {
+    var big = '', de = data.days[openDay].events;
+    for (j = 0; j < de.length; j++) if (!hiddenCal(de[j])) big += evHtml(de[j]);
+    dv.innerHTML = '<h2>' + esc(data.days[openDay].label) + '<span>tap to close</span></h2>' + (big || '<div class="empty">Nothing scheduled</div>');
+    dv.style.display = 'block';
+  } else { openDay = -1; dv.style.display = 'none'; }
 }
+// Navigation: tabs, tap a day to enlarge it, tap a name to show only that person. Returns to Home when left alone.
+var homeTimer = null;
+function goHome() { view = 'home'; focus = null; openDay = -1; armed = null; render(); }
+function touched() { clearTimeout(homeTimer); homeTimer = setTimeout(goHome, 60000); }
+document.addEventListener('click', touched, true);
+$('tabs').addEventListener('click', function (e) {
+  var v = e.target.getAttribute('data-view');
+  if (v) { view = v; focus = null; openDay = -1; render(); }
+});
+$('dayview').addEventListener('click', function () { openDay = -1; render(); });
 
 function send(t, action) {
   // Tell Google Tasks; until it answers, incoming refreshes are ignored so the change doesn't flicker back.
@@ -176,7 +244,16 @@ function send(t, action) {
   Tablet.fetch('act', u + '&action=' + action + '&list=' + encodeURIComponent(t.list) + '&task=' + encodeURIComponent(t.id));
 }
 $('cols').addEventListener('click', function (e) {
-  var el = e.target, hit = e.target;
+  var el = e.target, hit = e.target, up = e.target;
+  // A tap on a name focuses that person (tap again to go back); a tap on a day enlarges it.
+  while (up && up !== this) {
+    if (up.getAttribute('data-person')) {
+      var who = data.people[+up.getAttribute('data-person')];
+      focus = focus === who ? null : who; render(); return;
+    }
+    if (up.getAttribute('data-day')) { openDay = +up.getAttribute('data-day'); render(); return; }
+    up = up.parentNode;
+  }
   while (el && el !== this && !(el.className && /\btask\b/.test(el.className))) el = el.parentNode;
   if (!el || el === this) return;
   var id = el.getAttribute('data-id'), t = null;
@@ -219,21 +296,31 @@ function shift() {
 }
 
 // Called by the app when it dims or wakes the screen. The black layer also swallows the wake-up tap.
-function onDim(d) { $('night').style.display = d ? 'block' : 'none'; if (!d) refresh(); }
+function onDim(d) { $('night').style.display = d ? 'block' : 'none'; if (d) goHome(); else refresh(); }
 
 // ---- Setup panel: tap the clock five times quickly ----
-var cfg = store('cfg') || { dim: 120, thr: 8 };
+function hourName(h) { return ' ' + ((h % 12) || 12) + (h < 12 ? ' AM ' : ' PM '); }
+function showCals() {
+  var html = '', list = data.calendars || [];
+  for (var i = 0; i < list.length; i++) {
+    html += '<span class="cal' + (cfg.hide.indexOf(list[i].name) >= 0 ? ' off' : '') + '" data-cal="' + i +
+      '" style="border-left-color:' + esc(list[i].color || '#999') + '">' + esc(list[i].name) + '</span>';
+  }
+  $('cals').innerHTML = html || '(none yet - they appear after the first sync)';
+}
 var taps = 0, tapTimer = null, statusTimer = null;
 function applyCfg() {
   store('cfg', cfg);
   $('dimVal').innerHTML = ' ' + cfg.dim; $('thrVal').innerHTML = ' ' + cfg.thr + ' ';
-  if (hasTablet) Tablet.configure(cfg.dim, cfg.thr);
+  $('qsVal').innerHTML = hourName(cfg.qs); $('qeVal').innerHTML = hourName(cfg.qe) + (cfg.qs === cfg.qe ? '(off) ' : '');
+  showCals();
+  if (hasTablet) Tablet.configure(cfg.dim, cfg.thr, cfg.qs, cfg.qe);
 }
 function showStatus() {
   if (!hasTablet) { $('camOut').innerHTML = 'Camera: (not running inside the tablet app)'; return; }
   var s = JSON.parse(Tablet.status());
   $('camOut').innerHTML = 'Linked to: ' + esc((Tablet.dataUrl() || '(not linked)').split('?')[0]) +
-    '\nLast sync: ' + esc(lastSync) + '\n\nCamera: ' + esc(s.camera) + '\nDimmed: ' + (s.dimmed ? 'yes' : 'no') + '\nMovement level now: ' + s.diff +
+    '\nLast sync: ' + esc(lastSync) + '\n\nCamera: ' + esc(s.camera) + '\nDimmed: ' + (s.dimmed ? 'yes' : 'no') + '   Quiet hours now: ' + (s.quiet ? 'yes' : 'no') + '\nMovement level now: ' + s.diff +
     '   (wakes at ' + cfg.thr + ' or more)\nMovements detected: ' + s.motions + '\nSeconds since last activity: ' + s.idleSeconds;
 }
 $('clock').addEventListener('click', function () {
@@ -249,6 +336,17 @@ $('dimMinus').addEventListener('click', function () { cfg.dim = Math.max(15, cfg
 $('dimPlus').addEventListener('click', function () { cfg.dim += 15; applyCfg(); });
 $('thrMinus').addEventListener('click', function () { cfg.thr = Math.max(1, cfg.thr - 1); applyCfg(); });
 $('thrPlus').addEventListener('click', function () { cfg.thr += 1; applyCfg(); });
+$('qsMinus').addEventListener('click', function () { cfg.qs = (cfg.qs + 23) % 24; applyCfg(); });
+$('qsPlus').addEventListener('click', function () { cfg.qs = (cfg.qs + 1) % 24; applyCfg(); });
+$('qeMinus').addEventListener('click', function () { cfg.qe = (cfg.qe + 23) % 24; applyCfg(); });
+$('qePlus').addEventListener('click', function () { cfg.qe = (cfg.qe + 1) % 24; applyCfg(); });
+$('cals').addEventListener('click', function (e) {
+  var i = e.target.getAttribute('data-cal');
+  if (i === null) return;
+  var name = data.calendars[+i].name, at = cfg.hide.indexOf(name);
+  if (at >= 0) cfg.hide.splice(at, 1); else cfg.hide.push(name);
+  applyCfg(); render();
+});
 
 var TESTS = [
   ['google', 'https://www.google.com/generate_204'],
