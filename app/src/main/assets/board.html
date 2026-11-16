@@ -23,7 +23,13 @@
     font-size: 17px; line-height: 20px; }
   .task .box { position: absolute; left: 10px; top: 50%; margin-top: -15px; width: 26px; height: 26px;
     border: 2px solid #b9b2a5; border-radius: 15px; text-align: center; line-height: 26px; font-size: 18px; color: #fff; }
-  .task.done { color: #aaa398; text-decoration: line-through; }
+  .task.done { color: #aaa398; text-decoration: line-through; padding-right: 46px; }
+  /* Delete control on finished tasks: a cross, then an inline Yes/No so one stray tap can't delete. */
+  .del { position: absolute; right: 0; top: 0; bottom: 0; width: 44px; text-align: center; font-size: 20px; color: #b9b2a5;
+    text-decoration: none; line-height: 40px; }
+  .ask { display: block; text-decoration: none; color: #2b2a28; font-size: 15px; padding-top: 6px; }
+  .ask span { display: inline-block; padding: 8px 16px; margin-left: 8px; border-radius: 6px; background: #eee8dc; }
+  .ask .yes { background: #b5483f; color: #fff; }
   .empty { padding: 16px 12px; color: #aaa398; font-size: 15px; }
   /* Week strip: one column per day, today first. */
   .day { position: absolute; top: 50px; height: 204px; background: #fff; border-radius: 10px; overflow: hidden; }
@@ -126,6 +132,7 @@ function handleData(status, body) {
     $('sync').innerHTML = 'Offline - showing last copy' + (d && d.error ? ' (' + esc(d.error) + ')' : '');
   }
 }
+var armed = null; // id of the finished task currently showing "Delete? Yes / No"
 function render() {
   var html = '', n = data.people.length, w = n ? 100 / n : 0, i, j;
   for (i = 0; i < n; i++) {
@@ -138,7 +145,10 @@ function render() {
       if (d) finished++;
       rows += '<div class="task' + (d ? ' done' : '') + '" data-id="' + esc(mine[j].id) + '">' +
         '<div class="box"' + (d ? ' style="background:' + COLORS[i % 4] + ';border-color:' + COLORS[i % 4] + '"' : '') + '>' +
-        (d ? '&#10003;' : '') + '</div>' + esc(mine[j].title) + '</div>';
+        (d ? '&#10003;' : '') + '</div>' + esc(mine[j].title) +
+        (!d ? '' : armed === mine[j].id
+          ? '<span class="ask">Delete?<span class="yes" data-yes="1">Yes</span><span data-no="1">No</span></span>'
+          : '<span class="del" data-del="1">&#10005;</span>') + '</div>';
     }
     if (!mine.length) rows = '<div class="empty">Nothing to do</div>';
     html += '<div class="col" style="left:' + (i * w) + '%;width:' + (w - (i < n - 1 ? 1 : 0)) + '%">' +
@@ -156,22 +166,34 @@ function render() {
   $('cols').innerHTML = html;
 }
 
+function send(t, action) {
+  // Tell Google Tasks; until it answers, incoming refreshes are ignored so the change doesn't flicker back.
+  var u = hasTablet ? Tablet.dataUrl() : '';
+  if (!u || !t.list) return;
+  pending++;
+  Tablet.fetch('act', u + '&action=' + action + '&list=' + encodeURIComponent(t.list) + '&task=' + encodeURIComponent(t.id));
+}
 $('cols').addEventListener('click', function (e) {
-  var el = e.target;
+  var el = e.target, hit = e.target;
   while (el && el !== this && !(el.className && /\btask\b/.test(el.className))) el = el.parentNode;
   if (!el || el === this) return;
   var id = el.getAttribute('data-id'), t = null;
   for (var k = 0; k < data.tasks.length; k++) if (data.tasks[k].id === id) t = data.tasks[k];
   if (!t) return;
+  if (hit.getAttribute('data-del')) { armed = id; render(); return; }
+  if (hit.getAttribute('data-no')) { armed = null; render(); return; }
+  if (hit.getAttribute('data-yes')) {
+    armed = null;
+    data.tasks.splice(data.tasks.indexOf(t), 1);
+    render();
+    send(t, 'delete');
+    return;
+  }
+  if (armed === id) return; // while the question is showing, only Yes or No do anything
+  armed = null;
   t.done = !t.done;
   render();
-  // Tell Google Tasks; until it answers, incoming refreshes are ignored so the tick doesn't flicker back.
-  var u = hasTablet ? Tablet.dataUrl() : '';
-  if (u && t.list) {
-    pending++;
-    Tablet.fetch('act', u + '&action=' + (t.done ? 'done' : 'undo') +
-      '&list=' + encodeURIComponent(t.list) + '&task=' + encodeURIComponent(t.id));
-  }
+  send(t, t.done ? 'done' : 'undo');
 });
 
 var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
