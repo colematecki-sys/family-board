@@ -296,7 +296,8 @@ function shift() {
 }
 
 // Called by the app when it dims or wakes the screen. The black layer also swallows the wake-up tap.
-function onDim(d) { $('night').style.display = d ? 'block' : 'none'; if (d) goHome(); else refresh(); }
+var isDim = false;
+function onDim(d) { isDim = d; $('night').style.display = d ? 'block' : 'none'; if (d) goHome(); else refresh(); }
 
 // ---- Setup panel: tap the clock five times quickly ----
 function hourName(h) { return ' ' + ((h % 12) || 12) + (h < 12 ? ' AM ' : ' PM '); }
@@ -386,7 +387,8 @@ setInterval(tickClock, 5000);
 setInterval(shift, 4 * 60 * 1000);
 $('sync').innerHTML = 'sample data';
 refresh();
-setInterval(refresh, 5 * 60 * 1000);
+// Every minute while the screen is awake; a dimmed board skips it and catches up the moment it wakes.
+setInterval(function () { if (!isDim) refresh(); }, 60 * 1000);
 </script>
 </body>
 </html>
