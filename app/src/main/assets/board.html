@@ -35,6 +35,20 @@
   #dayview .ev b { font-size: 16px; }
   .cal { display: inline-block; padding: 8px 12px; margin: 3px 6px 3px 0; border-radius: 6px; background: #eee8dc; border-left: 8px solid #999; }
   .cal.off { opacity: 0.45; text-decoration: line-through; }
+  #weather { float: right; font-size: 15px; color: #2b2a28; padding-right: 10px; }
+  /* Info line under the header: dinner, countdowns, family note. Everything below moves down when it shows. */
+  #info { display: none; position: absolute; left: 0; right: 0; top: 46px; height: 26px; line-height: 26px; padding: 0 10px;
+    background: #2b2a28; color: #fff; border-radius: 8px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hasinfo #info { display: block; }
+  .hasinfo .day, .hasinfo .v-tasks .col, .hasinfo #dayview { top: 78px; }
+  .hasinfo .col { top: 290px; }
+  .task.overdue { color: #b5483f; }
+  .alldone { padding: 8px 12px; font-size: 15px; font-weight: bold; text-align: center; }
+  .add { padding: 12px; color: #9a948a; font-size: 15px; }
+  .addbox { padding: 8px; }
+  .addbox input { width: 100%; box-sizing: border-box; font-size: 17px; padding: 8px; border: 2px solid #b9b2a5; border-radius: 6px; }
+  .addbox span { display: inline-block; padding: 8px 14px; margin: 6px 6px 0 0; border-radius: 6px; background: #eee8dc; font-size: 15px; }
+  .addbox .ok { background: #2b2a28; color: #fff; }
   #sync { float: right; font-size: 13px; color: #9a948a; padding-right: 6px; }
   .col { position: absolute; top: 262px; bottom: 0; background: #fff; border-radius: 10px; overflow: hidden; }
   .colhead { height: 34px; line-height: 34px; padding: 0 12px; color: #fff; font-size: 18px; font-weight: bold; }
@@ -75,8 +89,9 @@
 <body>
 <div id="wrap">
   <div id="head"><div id="clock"></div><div id="date"></div>
-    <div id="tabs"><span data-view="home">Home</span><span data-view="week">Week</span><span data-view="tasks">Tasks</span></div>
-    <div id="sync"></div></div>
+    <div id="tabs"></div>
+    <div id="sync"></div><div id="weather"></div></div>
+  <div id="info"></div>
   <div id="cols"></div>
   <div id="dayview"></div>
   <div id="setup">
@@ -131,7 +146,9 @@ var data = {
     { label: 'Fri 20', events: [{ time: '6:00 PM', title: 'Movie night' }] },
     { label: 'Sat 21', events: [{ time: '9:00 AM', title: 'Game' }] }
   ],
-  calendars: [{ name: 'Family', color: '#c98a2b' }, { name: 'Kids', color: '#4d9a6a' }, { name: 'Work', color: '#3f7fbf' }]
+  calendars: [{ name: 'Family', color: '#c98a2b' }, { name: 'Kids', color: '#4d9a6a' }, { name: 'Work', color: '#3f7fbf' }],
+  shared: [], lists: {}, note: '', dinner: 'Tacos', countdowns: [{ title: "Grandma's birthday", days: 3 }],
+  weather: { now: 54, hi: 61, lo: 45, text: 'Cloudy' }
 };
 
 var hasTablet = typeof Tablet !== 'undefined';
@@ -179,30 +196,52 @@ function hiddenCal(ev) { return ev.cal && cfg.hide.indexOf(ev.cal) >= 0; }
 function evHtml(ev) {
   return '<div class="ev"' + (ev.color ? ' style="border-left-color:' + esc(ev.color) + '"' : '') + '><b>' + esc(ev.time) + '</b>' + esc(ev.title) + '</div>';
 }
+var adding = null, addText = ''; // person whose "add a task" box is open, and what has been typed so far
+var shown = [];                  // the people currently drawn as columns, in order
+// Stars: one per task ticked, counted per person on this tablet, starting again each Sunday.
+var stars = store('stars') || {};
+function starWeek() { var d = new Date(); d.setDate(d.getDate() - d.getDay()); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); }
+function star(person, by) {
+  if (stars.week !== starWeek()) stars = { week: starWeek(), n: {} };
+  stars.n[person] = Math.max(0, (stars.n[person] || 0) + by);
+  store('stars', stars);
+}
 function render() {
-  var html = '', n = data.people.length, w = n ? 100 / n : 0, i, j;
+  var html = '', i, j, shared = data.shared || [];
+  if ($('newTask')) addText = $('newTask').value; // keep what is being typed when a refresh redraws the board
   if (focus !== null && data.people.indexOf(focus) < 0) focus = null;
+  shown = [];
+  for (i = 0; i < data.people.length; i++) {
+    if (focus !== null ? data.people[i] === focus : shared.indexOf(data.people[i]) < 0) shown.push(data.people[i]);
+  }
+  var n = shown.length, w = n ? 100 / n : 0, weekStars = stars.week === starWeek() ? stars.n : {};
   for (i = 0; i < n; i++) {
-    if (focus !== null && data.people[i] !== focus) continue;
+    var who = shown[i], ci = data.people.indexOf(who) % 4, isShared = shared.indexOf(who) >= 0;
     var mine = [], finished = 0, rows = '';
-    for (j = 0; j < data.tasks.length; j++) if (data.tasks[j].person === data.people[i]) mine.push(data.tasks[j]);
+    for (j = 0; j < data.tasks.length; j++) if (data.tasks[j].person === who) mine.push(data.tasks[j]);
     // Unfinished first, finished at the bottom.
     mine.sort(function (a, b) { return (a.done ? 1 : 0) - (b.done ? 1 : 0); });
     for (j = 0; j < mine.length; j++) {
       var d = !!mine[j].done;
       if (d) finished++;
-      rows += '<div class="task' + (d ? ' done' : '') + (armed === mine[j].id ? ' asking' : '') + '" data-id="' + esc(mine[j].id) + '">' +
-        '<div class="box"' + (d ? ' style="background:' + COLORS[i % 4] + ';border-color:' + COLORS[i % 4] + '"' : '') + '>' +
+      rows += '<div class="task' + (d ? ' done' : '') + (!d && mine[j].overdue ? ' overdue' : '') + (armed === mine[j].id ? ' asking' : '') +
+        '" data-id="' + esc(mine[j].id) + '">' +
+        '<div class="box"' + (d ? ' style="background:' + COLORS[ci] + ';border-color:' + COLORS[ci] + '"' : '') + '>' +
         (d ? '&#10003;' : '') + '</div>' + esc(mine[j].title) +
         (!d ? '' : armed === mine[j].id
           ? '<span class="ask">Delete?<span class="yes" data-yes="1">Yes</span><span data-no="1">No</span></span>'
           : '<span class="del" data-del="1">&#10005;</span>') + '</div>';
     }
     if (!mine.length) rows = '<div class="empty">Nothing to do</div>';
-    html += '<div class="col' + (focus !== null ? ' focus' : '') + '" style="left:' + (focus !== null ? 0 : i * w) + '%;width:' +
-      (focus !== null ? 100 : w - (i < n - 1 ? 1 : 0)) + '%">' +
-      '<div class="colhead" data-person="' + i + '" style="background:' + COLORS[i % 4] + '">' + esc(data.people[i]) +
-      '<span>' + finished + '/' + mine.length + '</span></div><div class="list">' + rows + '</div></div>';
+    else if (finished === mine.length && !isShared) rows = '<div class="alldone" style="color:' + COLORS[ci] + '">&#9733; All done! &#9733;</div>' + rows;
+    rows += adding === who
+      ? '<div class="addbox"><input id="newTask" maxlength="200" value="' + esc(addText) + '">' +
+        '<span class="ok" data-addok="1">Add</span><span data-addno="1">Cancel</span></div>'
+      : '<div class="add" data-add="' + i + '">+ Add</div>';
+    html += '<div class="col' + (focus !== null ? ' focus' : '') + '" style="left:' + (i * w) + '%;width:' + (w - (i < n - 1 ? 1 : 0)) + '%">' +
+      '<div class="colhead" data-person="' + i + '" style="background:' + COLORS[ci] + '">' + esc(who) +
+      '<span>' + (isShared ? '' : '&#9733; ' + (weekStars[who] || 0) + ' &nbsp; ') + finished + '/' + mine.length + '</span></div>' +
+      '<div class="list">' + rows + '</div></div>';
   }
   if (!n) html += '<div class="col" style="left:0;width:100%"><div class="empty">No task lists yet. Add a list in Google Tasks for each person.</div></div>';
   var nd = data.days.length, dw = nd ? 100 / nd : 0;
@@ -214,8 +253,21 @@ function render() {
   }
   $('cols').innerHTML = html;
   $('cols').className = 'v-' + (focus !== null ? 'tasks' : view);
-  var tabs = $('tabs').children;
-  for (i = 0; i < tabs.length; i++) tabs[i].className = tabs[i].getAttribute('data-view') === view && focus === null ? 'on' : '';
+  if ($('newTask')) $('newTask').focus();
+  // Tabs: the three views, then one per shared list such as Groceries.
+  var names = { home: 'Home', week: 'Week', tasks: 'Tasks' }, th = '';
+  for (var v in names) th += '<span data-view="' + v + '"' + (v === view && focus === null ? ' class="on"' : '') + '>' + names[v] + '</span>';
+  for (i = 0; i < shared.length; i++) th += '<span data-shared="' + i + '"' + (focus === shared[i] ? ' class="on"' : '') + '>' + esc(shared[i]) + '</span>';
+  $('tabs').innerHTML = th;
+  // Info line and weather
+  var bits = [], cd = data.countdowns || [];
+  if (data.dinner) bits.push('Dinner: ' + data.dinner);
+  for (i = 0; i < cd.length; i++) bits.push(cd[i].title + (cd[i].days === 1 ? ' tomorrow' : ' in ' + cd[i].days + ' days'));
+  if (data.note) bits.push(data.note);
+  $('info').innerHTML = esc(bits.join('   \u00b7   '));
+  $('wrap').className = bits.length ? 'hasinfo' : '';
+  var wx = data.weather;
+  $('weather').innerHTML = wx ? esc(wx.now + '\u00b0 ' + wx.text + '  \u2191' + wx.hi + '\u00b0 \u2193' + wx.lo + '\u00b0') : '';
   // Enlarged single day
   var dv = $('dayview');
   if (openDay >= 0 && data.days[openDay]) {
@@ -227,15 +279,32 @@ function render() {
 }
 // Navigation: tabs, tap a day to enlarge it, tap a name to show only that person. Returns to Home when left alone.
 var homeTimer = null;
-function goHome() { view = 'home'; focus = null; openDay = -1; armed = null; render(); }
+function goHome() { view = 'home'; focus = null; openDay = -1; armed = null; adding = null; addText = ''; render(); }
 function touched() { clearTimeout(homeTimer); homeTimer = setTimeout(goHome, 60000); }
 document.addEventListener('click', touched, true);
+document.addEventListener('input', touched, true); // typing a new task counts as activity
 $('tabs').addEventListener('click', function (e) {
-  var v = e.target.getAttribute('data-view');
-  if (v) { view = v; focus = null; openDay = -1; render(); }
+  var v = e.target.getAttribute('data-view'), sh = e.target.getAttribute('data-shared');
+  if (v) { view = v; focus = null; openDay = -1; adding = null; render(); }
+  if (sh !== null) { focus = (data.shared || [])[+sh]; openDay = -1; adding = null; render(); }
 });
 $('dayview').addEventListener('click', function () { openDay = -1; render(); });
 
+// Adds what was typed to the open person's list: shown at once, then saved to Google Tasks.
+function addTask() {
+  var title = $('newTask') ? $('newTask').value.replace(/^\s+|\s+$/g, '') : '', who = adding;
+  adding = null; addText = '';
+  if (title && who !== null) {
+    data.tasks.push({ id: 'new' + new Date().getTime(), person: who, title: title, done: false });
+    var u = hasTablet ? Tablet.dataUrl() : '', list = (data.lists || {})[who];
+    if (u && list) {
+      pending++;
+      Tablet.fetch('act', u + '&action=add&list=' + encodeURIComponent(list) + '&title=' + encodeURIComponent(title));
+    }
+  }
+  render();
+}
+$('cols').addEventListener('keydown', function (e) { if (e.keyCode === 13 && e.target.id === 'newTask') addTask(); });
 function send(t, action) {
   // Tell Google Tasks; until it answers, incoming refreshes are ignored so the change doesn't flicker back.
   var u = hasTablet ? Tablet.dataUrl() : '';
@@ -248,9 +317,13 @@ $('cols').addEventListener('click', function (e) {
   // A tap on a name focuses that person (tap again to go back); a tap on a day enlarges it.
   while (up && up !== this) {
     if (up.getAttribute('data-person')) {
-      var who = data.people[+up.getAttribute('data-person')];
-      focus = focus === who ? null : who; render(); return;
+      var who = shown[+up.getAttribute('data-person')];
+      focus = focus === who ? null : who; adding = null; render(); return;
     }
+    if (up.getAttribute('data-add')) { adding = shown[+up.getAttribute('data-add')]; addText = ''; render(); return; }
+    if (up.getAttribute('data-addno')) { adding = null; addText = ''; render(); return; }
+    if (up.getAttribute('data-addok')) { addTask(); return; }
+    if (up.id === 'newTask') return;
     if (up.getAttribute('data-day')) { openDay = +up.getAttribute('data-day'); render(); return; }
     up = up.parentNode;
   }
@@ -271,6 +344,7 @@ $('cols').addEventListener('click', function (e) {
   if (armed === id) return; // while the question is showing, only Yes or No do anything
   armed = null;
   t.done = !t.done;
+  if ((data.shared || []).indexOf(t.person) < 0) star(t.person, t.done ? 1 : -1);
   render();
   send(t, t.done ? 'done' : 'undo');
 });
