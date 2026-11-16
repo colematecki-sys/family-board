@@ -103,12 +103,13 @@ function refresh() {
   if (!u) { $('sync').innerHTML = 'sample data (not linked yet)'; return; }
   Tablet.fetch('data', u);
 }
-var lastSync = 'no sync attempted yet';
+var lastSync = 'no sync attempted yet', pending = 0;
 function handleData(status, body) {
   var d = null;
   // Kept for the setup panel, so a failed sync can be diagnosed on the tablet.
   lastSync = (status ? 'HTTP ' + status : 'connection failed') + ': ' + String(body).substring(0, 300);
   try { d = JSON.parse(body); } catch (e) { }
+  if (pending > 0) return;
   if (status === 200 && d && d.people && d.tasks && d.events) {
     data = d; store('data', d); render();
     $('sync').innerHTML = 'Updated ' + $('clock').innerHTML;
@@ -117,21 +118,15 @@ function handleData(status, body) {
     $('sync').innerHTML = 'Offline - showing last copy' + (d && d.error ? ' (' + esc(d.error) + ')' : '');
   }
 }
-function today() { var d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
-
-// Check-offs are kept per day, so yesterday's ticks clear themselves overnight.
-var done = store('done') || {};
-if (done.day !== today()) done = { day: today(), ids: {} };
-
 function render() {
   var html = '', n = data.people.length, calW = n ? 22 : 100, w = n ? (100 - calW) / n : 0, i, j; // no people yet: calendar fills the board
   for (i = 0; i < n; i++) {
     var mine = [], finished = 0, rows = '';
     for (j = 0; j < data.tasks.length; j++) if (data.tasks[j].person === data.people[i]) mine.push(data.tasks[j]);
     // Unfinished first, finished at the bottom.
-    mine.sort(function (a, b) { return (done.ids[a.id] ? 1 : 0) - (done.ids[b.id] ? 1 : 0); });
+    mine.sort(function (a, b) { return (a.done ? 1 : 0) - (b.done ? 1 : 0); });
     for (j = 0; j < mine.length; j++) {
-      var d = !!done.ids[mine[j].id];
+      var d = !!mine[j].done;
       if (d) finished++;
       rows += '<div class="task' + (d ? ' done' : '') + '" data-id="' + esc(mine[j].id) + '">' +
         '<div class="box"' + (d ? ' style="background:' + COLORS[i % 4] + ';border-color:' + COLORS[i % 4] + '"' : '') + '>' +
@@ -157,10 +152,18 @@ $('cols').addEventListener('click', function (e) {
   var el = e.target;
   while (el && el !== this && !(el.className && /\btask\b/.test(el.className))) el = el.parentNode;
   if (!el || el === this) return;
-  var id = el.getAttribute('data-id');
-  if (done.ids[id]) delete done.ids[id]; else done.ids[id] = 1;
-  store('done', done);
+  var id = el.getAttribute('data-id'), t = null;
+  for (var k = 0; k < data.tasks.length; k++) if (data.tasks[k].id === id) t = data.tasks[k];
+  if (!t) return;
+  t.done = !t.done;
   render();
+  // Tell Google Tasks; until it answers, incoming refreshes are ignored so the tick doesn't flicker back.
+  var u = hasTablet ? Tablet.dataUrl() : '';
+  if (u && t.list) {
+    pending++;
+    Tablet.fetch('act', u + '&action=' + (t.done ? 'done' : 'undo') +
+      '&list=' + encodeURIComponent(t.list) + '&task=' + encodeURIComponent(t.id));
+  }
 });
 
 var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -172,7 +175,6 @@ function tickClock() {
   // The dim clock sits somewhere different every minute.
   $('nightClock').style.left = (5 + (m * 7) % 50) + '%'; $('nightClock').style.top = (10 + (m * 13) % 60) + '%';
   $('date').innerHTML = DAYS[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
-  if (done.day !== today()) { done = { day: today(), ids: {} }; store('done', done); render(); }
 }
 
 // Pixel shift: move the whole board through a small loop of offsets.
@@ -236,6 +238,12 @@ function showNet() {
 // Called by the app when a Tablet.fetch finishes. Status 0 means the connection itself failed.
 function onFetch(id, status, body) {
   if (id === 'data') { handleData(status, body); return; }
+  if (id === 'act') {
+    pending = Math.max(0, pending - 1);
+    if (status !== 200 || body.indexOf('"ok"') < 0) lastSync = 'check-off not saved: ' + String(body).substring(0, 200);
+    if (!pending) refresh(); // re-read the truth; a tick that failed to save comes back unticked
+    return;
+  }
   netLines[id] = status ? 'OK (HTTP ' + status + ')' : 'FAILED: ' + String(body).substring(0, 200);
   showNet();
 }
